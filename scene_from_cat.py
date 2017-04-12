@@ -1,11 +1,15 @@
 #!/usr/bin/env python2
 # -*- coding: utf-8 -*-
 """
-Script to create a MIRISim scene object from an input catalogue.
+Tools to create a MIRISim scene object from an input catalogue.
+Goal is to use this with Alistair's data on the JWST Astrometric Field to
+simulate the astrometric field with MIRISim.
 
 Created on Fri Dec 16 14:19:24 2016
 
-@author: paddy
+12.04.17 updated for configobj refactor in MIRISim
+
+@author: Patrick Kavanagh (DIAS)
 """
 
 from __future__ import absolute_import, division, print_function
