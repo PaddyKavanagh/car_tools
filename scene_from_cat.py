@@ -18,7 +18,6 @@ import os
 import numpy as np
 import matplotlib.pyplot as plt
 import random
-from configobj import ConfigObj
 
 from mirisim.skysim import *
 from mirisim.config_parser import *
