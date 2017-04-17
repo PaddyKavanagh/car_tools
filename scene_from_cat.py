@@ -18,6 +18,7 @@ import os
 import numpy as np
 import matplotlib.pyplot as plt
 import random
+from scipy.optimize import curve_fit
 
 from mirisim.skysim import *
 from mirisim.config_parser import *
@@ -136,8 +137,47 @@ def read_cat_from_txt(txt_cat):
     return data
 
 
-# TODO add fuction to read data from Excel spreadsheet or something exported
-#      from it
+def get_nearby_sources(cat, target_ra, target_dec):
+    """
+    Simple function to read an input catalogue from an txt file, select
+    sources within 2 arcmin of target (given by ra and dec)
+    and return as a numpy array.
+
+    Parameters:
+    xls_cat     --      xls file containing catalogue data. For now, this is
+                        taylored to read from Alistair's xls file.
+
+    target_ra   --      ra of target source in decimal degrees
+
+    target_dec  --      dec of target source in decimal degrees
+
+    Returns:
+    catalogue   --      numpy array with catalogue data
+
+    """
+    # check the file exists
+    assert os.path.isfile(cat), 'Catalogue file not found..'
+
+    # open file and read contents
+    with open(cat, 'rb') as catfile:
+        data = np.loadtxt(catfile, delimiter=',', comments='#', unpack=True, skiprows=4)
+
+    # check for the correct number of columns (should be 3: RA, DEC, flux)
+    assert data.shape[0] == 14, 'Incorrect number of columns in catalogue file, should be 14'
+
+    nearby_cat = []
+    for n in range(0, data.shape[1]-1):
+
+        #print(data[:,n])
+
+        # determine distance of source to target
+        dist = np.sqrt( (data[1,n] - target_ra)**2 + (data[2,n] - target_dec)**2 )
+
+        # if distance less than 2 arcmin, write to output array
+        if dist < 0.033:
+            nearby_cat.append([data[:,n]])
+
+    return np.squeeze(np.asarray(nearby_cat))
 
 
 def radec_to_offset(target_ra, target_dec, src_coords, test=None):
@@ -193,7 +233,7 @@ def radec_to_offset(target_ra, target_dec, src_coords, test=None):
     return src_offsets
 
 
-def make_scene_obj(offsets,fluxes):
+def make_scene_obj(offsets,fluxes,wref,temp):
     """
     Function to take catalogue and construct a MIRISim scene object
 
@@ -203,7 +243,11 @@ def make_scene_obj(offsets,fluxes):
     Parameters:
     offsets                 --  array containing source offsets
 
-    fluxes                  --  array containing source fluxes
+    fluxes                  --  array containing source fluxes (in mJy)
+
+    wref                    --  reference wavelength of flux
+
+    temp                    --  blackbody temperature
 
     Returns:
     scene_obj               --  catalogue scene object
@@ -215,7 +259,7 @@ def make_scene_obj(offsets,fluxes):
     # process the sources in the catalogue
     targets = []
     for n in range(offsets.shape[0]):
-        sed = BBSed(Temp=300., wref=10., flux=fluxes[n])
+        sed = BBSed(Temp=temp, wref=wref, flux=fluxes[n]*1.e3)
         point = Point(Cen=(offsets[n,0],offsets[n,1]), vel=0.0)
         point.set_SED(sed)
         targets.append(point)
@@ -226,15 +270,15 @@ def make_scene_obj(offsets,fluxes):
     return scene_obj
 
 
-def make_cat_scene_obj(cat_file=None,target_coords=[1.0,1.0],random=True,\
-                        source_num=100, centre_coords=[1.0,1.0],save_file=False, \
-                        out_file='my_catalogue.txt', save_ini=False):
+def make_simple_cat_scene_obj(cat_file=None,target_coords=[1.0,1.0],random=True,\
+                              source_num=100, centre_coords=[1.0,1.0],save_file=False, \
+                              out_file='my_catalogue.txt', save_ini=False):
     """
-    Generate the scene object from the input catalogue or a randomly generated
+    Generate the scene object from a simple input catalogue or a randomly generated
     catalogue, containing RA, DEC and flux for each source.
 
     Note that this assumes all sources are points and described by
-    blackbody SED.
+    blackbody SED with T=300 K at wref=10 micron
 
     Parameters:
     cat_file                --  catalogue file. Assumed to be txt file with
@@ -279,7 +323,8 @@ def make_cat_scene_obj(cat_file=None,target_coords=[1.0,1.0],random=True,\
     offsets = radec_to_offset(target_coords[0], target_coords[1], cat[:,:2])
 
     # generate the scene object
-    cat_scene_obj = make_scene_obj(offsets,cat[:,2])
+    cat_scene_obj = make_scene_obj(offsets,cat[:,2], wref=10., temp=300.)
+
     # save ini file if requested (delete old one of exists)
     try:
         os.remove('scene.ini')
@@ -290,7 +335,48 @@ def make_cat_scene_obj(cat_file=None,target_coords=[1.0,1.0],random=True,\
     return cat_scene_obj
 
 
+def make_cat_scene_obj(cat_file=None,target_coords=[80.5,-69.5], save_ini=False):
+    """
+    Generate the scene object from an input csv catalogue exported from
+    Alistair's Excel file
+
+    Parameters:
+    cat_file                --  catalogue csv file
+                                (default = None)
+
+    target_coords           --  set the coordinates of the observation target
+                                in decimal degrees
+                                (default = [80.5,-69.5])
+
+    save_ini                --  if True, saves the scene object to an ini file
+                                called 'scene.ini'
+                                (default = False)
+
+    Returns:
+    scene_obj               --  catalogue scene object
+
+    """
+    # search the full astrometric catalogue for sources near the target
+    cat = get_nearby_sources(cat_file, target_coords[0], target_coords[1])
+
+    # convert source coordinates to offsets required for MIRISim
+    offsets = radec_to_offset(target_coords[0], target_coords[1], cat[:,1:3])
+
+    # generate the scene object using fluxes at 10 micron and assuming hot stars
+    cat_scene_obj = make_scene_obj(offsets,cat[:,7],wref=10.,temp=10000.)
+
+    # save ini file if requested (delete old one of exists)
+    try:
+        os.remove('JWST_astrometric_scene.ini')
+    except OSError:
+        pass
+    if save_ini == True: cat_scene_obj.write('JWST_astrometric_scene.ini')
+
+    return cat_scene_obj
+
+
 if __name__ == "__main__":
 
     # TODO Add command line parser
-    make_cat_scene_obj(target_coords=[1.0,1.0],save_ini=True)
+    #make_simple_cat_scene_obj(target_coords=[1.0,1.0],save_ini=True)
+    make_cat_scene_obj('/Users/patrickkavanagh/CARs/JA_LMC_MIRI.csv', target_coords=[80.486295, -69.448440], save_ini=True)
