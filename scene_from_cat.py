@@ -1,19 +1,34 @@
 #!/usr/bin/env python2
 # -*- coding: utf-8 -*-
+#
+# @author: Patrick Kavanagh (DIAS)
+#
 """
+
 Tools to create a MIRISim scene object from an input catalogue.
-Goal is to use this with Alistair's data on the JWST Astrometric Field to
-simulate the astrometric field with MIRISim.
 
-Created on Fri Dec 16 14:19:24 2016
+Can either create a randomly generated catalogue or use Alistair's data on
+the JWST Astrometric Field (exported from xlxs to csv after deleting the empty
+column - possible to read xlsx file directly but it is significantly slower).
 
-12.04.17 updated for configobj refactor in MIRISim
+Can also be used as a command line script to generate a scene.ini file for
+the JWST Astronometric catalogue:
 
-@author: Patrick Kavanagh (DIAS)
+python scene_from_cat.py inputfile ra dec
+
+    inputfile   --  the path+name of the catalogue file
+
+    ra          --  target RA in decimal degrees
+
+    dec         --  target Dec in decimal degrees
+
+Intended for simulations for CAR007 (Distortion and plate scale)
+
 """
 
 from __future__ import absolute_import, division, print_function
-import os
+import optparse
+import os, sys, time
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -124,9 +139,6 @@ def read_cat_from_txt(txt_cat):
     catalogue   --      numpy array with catalogue data
 
     """
-    # check the file exists
-    assert os.path.isfile(txt_cat), 'Catalogue csv file not found..'
-
     # open file and read contents
     with open(txt_cat, 'rb') as catfile:
         data = np.loadtxt(catfile, delimiter='', comments='#', unpack=True)
@@ -155,9 +167,6 @@ def get_nearby_sources(cat, target_ra, target_dec):
     catalogue   --      numpy array with catalogue data
 
     """
-    # check the file exists
-    assert os.path.isfile(cat), 'Catalogue file not found..'
-
     # open file and read contents
     with open(cat, 'rb') as catfile:
         data = np.loadtxt(catfile, delimiter=',', comments='#', unpack=True, skiprows=4)
@@ -376,7 +385,50 @@ def make_cat_scene_obj(cat_file=None,target_coords=[80.5,-69.5], save_ini=False)
 
 
 if __name__ == "__main__":
+        # Parse arguments
+        help_text = __doc__
+        usage = "\n\n%prog inputfile ra -- dec\n"
+        usage += "\nGenerate a scene.ini file from a csv file exported from "
+        usage += "Alistair's JWST Astrometric Field Excel spreadsheet."
 
-    # TODO Add command line parser
-    #make_simple_cat_scene_obj(target_coords=[1.0,1.0],save_ini=True)
-    make_cat_scene_obj('/Users/patrickkavanagh/CARs/JA_LMC_MIRI.csv', target_coords=[80.486295, -69.448440], save_ini=True)
+        parser = optparse.OptionParser(usage)
+        (options,args) = parser.parse_args()
+
+        # check for correct number of arguments
+        try:
+            input_file = args[0]
+            target_ra = float(args[1])
+            target_dec = float(args[2])
+
+        except IndexError:
+            print(help_text)
+            time.sleep(1) # Ensure help text appears before error messages.
+            parser.error("Not enough arguments provided")
+            sys.exit(1)
+
+        # check the catalogue file exists
+        try:
+            file = open(input_file, 'r')
+
+        except IOError:
+            parser.error("Catalogue file not found")
+            sys.exit(1)
+
+        # check RA is in astrometric field range
+        try:
+            assert (80. <= target_ra) and (target_ra <= 81.)
+
+        except AssertionError:
+            parser.error("RA is not in astrometric field range of 80 .. 81 degrees")
+            sys.exit(1)
+
+        # check Dec is in astrometric field range
+        try:
+            assert (-70. <= target_dec) and (target_dec <=-69.)
+
+        except AssertionError:
+            parser.error("Dec is not in astrometric field range of -69 .. -70 degrees")
+            sys.exit(1)
+
+        #make_cat_scene_obj('/Users/patrickkavanagh/CARs/JA_LMC_MIRI.csv', target_coords=[80.486295, -69.448440], save_ini=True)
+        make_cat_scene_obj(cat_file=input_file, target_coords=[target_ra, target_dec], save_ini=True)
