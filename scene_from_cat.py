@@ -18,6 +18,8 @@ python scene_from_cat.py inputfile ra dec
 
     inputfile   --  the path+name of the catalogue file
 
+    instrument  --  MIRI instrument being simulated (IMA, MRS or LRS)
+
     ra          --  target RA in decimal degrees
 
     dec         --  target Dec in decimal degrees
@@ -149,7 +151,7 @@ def read_cat_from_txt(txt_cat):
     return data
 
 
-def get_nearby_sources(cat, target_ra, target_dec):
+def get_nearby_sources(cat, target_ra, target_dec, instrument):
     """
     Simple function to read an input catalogue from an txt file, select
     sources within 2 arcmin of target (given by ra and dec)
@@ -162,6 +164,8 @@ def get_nearby_sources(cat, target_ra, target_dec):
     target_ra   --      ra of target source in decimal degrees
 
     target_dec  --      dec of target source in decimal degrees
+
+    instrument  --      MIRI instrument being simulated (IMA, LRS or MRS)
 
     Returns:
     catalogue   --      numpy array with catalogue data
@@ -182,9 +186,18 @@ def get_nearby_sources(cat, target_ra, target_dec):
         # determine distance of source to target
         dist = np.sqrt( (data[1,n] - target_ra)**2 + (data[2,n] - target_dec)**2 )
 
-        # if distance less than 2 arcmin, write to output array
-        if dist < 0.033:
-            nearby_cat.append([data[:,n]])
+        # if distance <2' for IMA and <10" for MRS, write to output array
+        if instrument == 'IMA':
+            if dist < 0.033:
+                nearby_cat.append([data[:,n]])
+
+        if instrument == 'MRS':
+            if dist < 0.003:
+                nearby_cat.append([data[:,n]])
+
+        if instrument == 'LRS':
+            if dist < 0.01:
+                nearby_cat.append([data[:,n]])
 
     return np.squeeze(np.asarray(nearby_cat))
 
@@ -344,7 +357,7 @@ def make_simple_cat_scene_obj(cat_file=None,target_coords=[1.0,1.0],random=True,
     return cat_scene_obj
 
 
-def make_cat_scene_obj(cat_file=None,target_coords=[80.5,-69.5], save_ini=False):
+def make_cat_scene_obj(cat_file=None,target_coords=[80.5,-69.5], instrument='IMA',save_ini=False):
     """
     Generate the scene object from an input csv catalogue exported from
     Alistair's Excel file
@@ -357,6 +370,9 @@ def make_cat_scene_obj(cat_file=None,target_coords=[80.5,-69.5], save_ini=False)
                                 in decimal degrees
                                 (default = [80.5,-69.5])
 
+    instrument              --  MIRI instrument being simulated. Used to determine
+                                how to spatially filter catalogue (IMA,LRS or MRS)
+
     save_ini                --  if True, saves the scene object to an ini file
                                 called 'scene.ini'
                                 (default = False)
@@ -366,7 +382,7 @@ def make_cat_scene_obj(cat_file=None,target_coords=[80.5,-69.5], save_ini=False)
 
     """
     # search the full astrometric catalogue for sources near the target
-    cat = get_nearby_sources(cat_file, target_coords[0], target_coords[1])
+    cat = get_nearby_sources(cat_file, target_coords[0], target_coords[1], instrument)
 
     # convert source coordinates to offsets required for MIRISim
     offsets = radec_to_offset(target_coords[0], target_coords[1], cat[:,1:3])
@@ -375,11 +391,15 @@ def make_cat_scene_obj(cat_file=None,target_coords=[80.5,-69.5], save_ini=False)
     cat_scene_obj = make_scene_obj(offsets,cat[:,7],wref=10.,temp=10000.)
 
     # save ini file if requested (delete old one of exists)
-    try:
-        os.remove('JWST_astrometric_scene.ini')
-    except OSError:
-        pass
-    if save_ini == True: cat_scene_obj.write('JWST_astrometric_scene.ini')
+    if save_ini == True:
+        ini_file_name_stem = os.path.splitext(os.path.basename(cat_file))[0]
+        ini_file_name = ini_file_name_stem + '_' + instrument + '_' + str(target_coords[0]) \
+                        + '_' + str(target_coords[1]) + '.ini'
+        try:
+            os.remove(ini_file_name)
+        except OSError:
+            pass
+        cat_scene_obj.write(ini_file_name)
 
     return cat_scene_obj
 
@@ -397,8 +417,9 @@ if __name__ == "__main__":
         # check for correct number of arguments
         try:
             input_file = args[0]
-            target_ra = float(args[1])
-            target_dec = float(args[2])
+            instrument = args[1]
+            target_ra = float(args[2])
+            target_dec = float(args[3])
 
         except IndexError:
             print(help_text)
@@ -412,6 +433,14 @@ if __name__ == "__main__":
 
         except IOError:
             parser.error("Catalogue file not found")
+            sys.exit(1)
+
+        # check the instrument
+        try:
+            assert instrument in ['IMA','MRS','LRS']
+
+        except AssertionError:
+            parser.error("Instrument not recognised, must be IMA, MRS or LRS")
             sys.exit(1)
 
         # check RA is in astrometric field range
@@ -430,5 +459,6 @@ if __name__ == "__main__":
             parser.error("Dec is not in astrometric field range of -69 .. -70 degrees")
             sys.exit(1)
 
-        #make_cat_scene_obj('/Users/patrickkavanagh/CARs/JA_LMC_MIRI.csv', target_coords=[80.486295, -69.448440], save_ini=True)
-        make_cat_scene_obj(cat_file=input_file, target_coords=[target_ra, target_dec], save_ini=True)
+        #make_cat_scene_obj('/Users/patrickkavanagh/CARs/JA_LMC_MIRI.csv', target_coords=[80.508612, -69.510760], save_ini=True)
+        make_cat_scene_obj(cat_file=input_file, target_coords=[target_ra, target_dec],
+                            instrument=instrument, save_ini=True)
